@@ -1,0 +1,74 @@
+import sensor
+import time
+
+sensor.reset()
+sensor.set_pixformat(sensor.GRAYSCALE)
+sensor.set_framesize(sensor.B320X320)
+sensor.skip_frames(time=2000)
+sensor.ioctl(sensor.IOCTL_GENX320_SET_BIAS, sensor.GENX320_BIAS_REFR,1)
+sensor.ioctl(sensor.IOCTL_GENX320_SET_BIAS, sensor.GENX320_BIAS_DIFF_ON, 20)
+sensor.ioctl(sensor.IOCTL_GENX320_SET_BIAS, sensor.GENX320_BIAS_DIFF_OFF, 20)
+
+# Center pixel
+px, py = 172,264
+
+# Generate list of 15 pixel coordinates (3 rows, 5 columns centered at px, py)
+pixels_to_check = []
+for row_y in [py - 1, py, py + 1]:
+    for col_x in range(px - 2, px + 5):
+        if 0 <= col_x < 320 and 0 <= row_y < 320:
+            pixels_to_check.append((col_x, row_y))
+
+# Duration for each pixel tracking (ms)
+duration_ms = 2000
+
+print("Tracking polarity frequency for 15 pixels...\n")
+
+results = []
+
+for pos in pixels_to_check:
+    prev_val = None
+    prev_trend = 0
+    polarity_times = []
+
+    print(f"Tracking pixel: {pos}...")
+
+    start = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), start) < duration_ms:
+        img = sensor.snapshot()
+        now = time.ticks_ms()
+
+        # Draw red rectangle on current pixel
+        img.draw_rectangle(pos[0] - 2, pos[1] - 2, 5, 5, color=(255, 0, 0))
+
+        val = img.get_pixel(pos[0], pos[1])
+        if prev_val is None:
+            prev_val = val
+            continue
+
+        if val > prev_val:
+            trend = 1
+        elif val < prev_val:
+            trend = -1
+        else:
+            trend = prev_trend
+
+        # Detect high-to-low transition
+        if trend == -1 and prev_trend == 1:
+            polarity_times.append(now)
+
+        prev_val = val
+        prev_trend = trend
+
+    # Calculate frequency
+    count = len(polarity_times)
+    freq = count / (duration_ms / 1000.0)
+    results.append((pos, freq))
+    print(f"Pixel {pos}: {count} events -> ~{freq:.2f} Hz\n")
+
+# Final summary
+print("=== Final Frequencies ===")
+for pos, freq in results:
+    print(f"Pixel {pos}: ~{freq:.2f} Hz")
+
+print("\nDone.")

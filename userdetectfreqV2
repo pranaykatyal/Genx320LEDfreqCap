@@ -1,0 +1,176 @@
+import sensor
+import time
+import heapq
+import image
+
+sensor.reset()
+sensor.set_pixformat(sensor.GRAYSCALE)
+sensor.set_framesize(sensor.B320X320)
+sensor.set_color_palette(image.PALETTE_EVT_DARK)
+sensor.set_framerate(60)
+sensor.skip_frames(time=2000)
+
+# --- Blob-based LED center detection using your reference blob creation ---
+def detect_led_centers_via_blobs(num_leds=2, duration_s=2):
+    start = time.ticks_ms()
+    centers = []
+    while time.ticks_diff(time.ticks_ms(), start) < duration_s * 1000:
+        img = sensor.snapshot()
+        blobs = img.find_blobs(
+            [(10, 20, -10, 10, -20, 0)], invert=True, pixels_threshold=10, area_threshold=100, merge=True
+        )
+        if blobs:
+            # Sort blobs by area, largest first
+            blobs = sorted(blobs, key=lambda b: b.pixels(), reverse=True)
+            # Take up to num_leds largest blobs
+            centers = [(int(blob.cx()), int(blob.cy())) for blob in blobs[:num_leds]]
+            # Draw for visualization (optional)
+            for blob in blobs:
+                img.draw_rectangle(blob.rect(), color=(255, 0, 0))
+                img.draw_cross(blob.cx(), blob.cy(), color=(0, 255, 0))
+            # If we have enough blobs, break early
+            if len(centers) == num_leds:
+                break
+    return centers
+
+# --- User parameter: number of LEDs to track ---
+num_leds = 2  # Set this to the number of LEDs in your setup
+
+print(f"Detecting {num_leds} LED blobs...")
+led_centers = detect_led_centers_via_blobs(num_leds=num_leds, duration_s=2)
+print("Detected LED centers:", led_centers)
+if len(led_centers) < num_leds:
+    print("WARNING: Only detected {} LED(s)!".format(len(led_centers)))
+for i, (px, py) in enumerate(led_centers):
+    print(f"Detected LED {i+1} center at: ({px}, {py})")
+
+# --- Frequency detection for each LED ---
+def measure_led_frequency(led_center, duration_ms=2000):
+    px, py = led_center
+    transition_times = []
+    prev_val = 0
+    prev_polarity = 0
+    last_transition_time = 0
+
+    # Estimate threshold from initial samples
+    threshold_samples = []
+    for _ in range(10):
+        img = sensor.snapshot()
+        val = img.get_pixel(px, py)
+        # If val is a tuple (e.g., RGB), use only the first channel
+        if isinstance(val, tuple):
+            val = val[0]
+        threshold_samples.append(val)
+    if threshold_samples:
+        min_val = min(threshold_samples)
+        max_val = max(threshold_samples)
+        # If min_val or max_val are tuples, use their first element
+        if isinstance(min_val, tuple):
+            min_val = min_val[0]
+        if isinstance(max_val, tuple):
+            max_val = max_val[0]
+        threshold = (max_val + min_val) / 2.0
+    else:
+        threshold = 127
+
+    img = sensor.snapshot()
+    prev_val = img.get_pixel(px, py)
+    if isinstance(prev_val, tuple):
+        prev_val = prev_val[0]
+    prev_polarity = 1 if prev_val > threshold else -1
+    start = time.ticks_ms()
+
+    while time.ticks_diff(time.ticks_ms(), start) < duration_ms:
+        img = sensor.snapshot()
+        now = time.ticks_ms()
+        val = img.get_pixel(px, py)
+        if isinstance(val, tuple):
+            val = val[0]
+        polarity = 1 if val > threshold else -1
+        if polarity != prev_polarity:
+            if last_transition_time == 0 or (now - last_transition_time) > 5:
+                transition_times.append(now)
+                last_transition_time = now
+        prev_polarity = polarity
+
+    cycles = len(transition_times) // 2
+    freq_hz = cycles / (duration_ms / 1000.0)
+    print(f"Transitions: {len(transition_times)} detected at {led_center}")
+    print(f"Calculated frequency: {freq_hz:.2f} Hz")
+    return freq_hz
+
+# Measure frequency for each detected LED
+for i, led_center in enumerate(led_centers):
+    print(f"\n=== Measuring LED {i+1} at {led_center} ===")
+    freq = measure_led_frequency(led_center, duration_ms=2000)
+    print(f"LED {i+1} Frequency: {freq:.2f} Hz")
+    
+
+# Window size (rows x cols)
+window_rows = 3
+window_cols = 3
+half_rows = window_rows // 2
+half_cols = window_cols // 2
+
+duration_ms = 3000
+num_repeats = 1
+
+# --- 3x3 window frequency measurement for all LEDs ---
+for i, (px, py) in enumerate(led_centers):
+    print(f"\n=== 3x3 Window Measurement for LED {i+1} at ({px}, {py}) ===")
+    pixels_to_check = [
+        (x, y)
+        for y in range(py - half_rows, py + half_rows + 1)
+        for x in range(px - half_cols, px + half_cols + 1)
+        if 0 <= x < 320 and 0 <= y < 320
+    ]
+    pixel_freq_sums = {pos: 0.0 for pos in pixels_to_check}
+
+    for repeat in range(num_repeats):
+        print(f"\n--- Measurement round {repeat+1} ---")
+        for pos in pixels_to_check:
+            prev_trend = 0
+            polarity_times = []
+
+            print(f"Tracking pixel: {pos}...")
+
+            img = sensor.snapshot()
+            prev_val = img.get_pixel(pos[0], pos[1])
+
+            start = time.ticks_ms()
+            while time.ticks_diff(time.ticks_ms(), start) < duration_ms:
+                img = sensor.snapshot()
+                now = time.ticks_ms()
+                img.draw_rectangle(pos[0] - 2, pos[1] - 2, 5, 5, color=(255, 0, 0))
+                val = img.get_pixel(pos[0], pos[1])
+
+                if val > prev_val:
+                    trend = 1
+                elif val < prev_val:
+                    trend = -1
+                else:
+                    trend = prev_trend
+
+                if trend == -1 and prev_trend == 1:
+                    polarity_times.append(now)
+
+                prev_val = val
+                prev_trend = trend
+
+            img = sensor.snapshot()
+            val = img.get_pixel(pos[0], pos[1])
+            if val < prev_val and prev_trend == 1:
+                polarity_times.append(time.ticks_ms())
+
+            count = len(polarity_times)
+            freq = count / (duration_ms / 1000.0)
+            pixel_freq_sums[pos] += freq
+            print(f"Pixel {pos}: {count} events -> ~{freq:.2f} Hz")
+
+    print(f"\n=== Average Frequencies for LED {i+1} over {num_repeats} rounds ===")
+    for pos in pixels_to_check:
+        avg_freq = pixel_freq_sums[pos] / num_repeats
+        print(f"Pixel {pos}: ~{avg_freq:.2f} Hz")
+
+print("\nDone.")
+

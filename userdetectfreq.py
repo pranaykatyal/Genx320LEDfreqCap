@@ -1,0 +1,119 @@
+import sensor
+import time
+
+sensor.reset()
+sensor.set_pixformat(sensor.GRAYSCALE)
+sensor.set_framesize(sensor.B320X320)
+sensor.set_framerate(60)
+sensor.skip_frames(time=2000)
+
+# --- Auto-detect LED center pixel ---
+def find_led_center(num_frames=10):
+    width, height = 320, 320
+    # Initialize sum and sum of squares arrays
+    sum_img = [[0]*width for _ in range(height)]
+    sum_sq_img = [[0]*width for _ in range(height)]
+
+    for _ in range(num_frames):
+        img = sensor.snapshot()
+        for y in range(height):
+            for x in range(width):
+                val = img.get_pixel(x, y)
+                sum_img[y][x] += val
+                sum_sq_img[y][x] += val * val
+
+    max_var = -1
+    max_pos = (0, 0)
+    for y in range(height):
+        for x in range(width):
+            mean = sum_img[y][x] / num_frames
+            mean_sq = sum_sq_img[y][x] / num_frames
+            var = mean_sq - mean * mean
+            if var > max_var:
+                max_var = var
+                max_pos = (x, y)
+    return max_pos
+
+print("Detecting LED center pixel...")
+px, py = find_led_center()
+print(f"Detected LED center at: ({px}, {py})")
+
+# Center pixel
+# px, py = 172, 300
+
+# Window size (rows x cols)
+window_rows = 3
+window_cols = 3
+
+# Calculate half window sizes
+half_rows = window_rows // 2
+half_cols = window_cols // 2
+
+# Generate list of pixel coordinates in the window centered at (px, py)
+pixels_to_check = [
+    (x, y)
+    for y in range(py - half_rows, py + half_rows + 1)
+    for x in range(px - half_cols, px + half_cols + 1)
+    if 0 <= x < 320 and 0 <= y < 320
+]
+
+# Duration for each pixel tracking (ms)
+duration_ms = 3000
+
+num_repeats = 1
+pixel_freq_sums = {pos: 0.0 for pos in pixels_to_check}
+
+for repeat in range(num_repeats):
+    print(f"\n=== Measurement round {repeat+1} ===")
+    for pos in pixels_to_check:
+        prev_trend = 0
+        polarity_times = []
+
+        print(f"Tracking pixel: {pos}...")
+
+        # Take initial sample before starting timer
+        img = sensor.snapshot()
+        prev_val = img.get_pixel(pos[0], pos[1])
+
+        start = time.ticks_ms()
+        while time.ticks_diff(time.ticks_ms(), start) < duration_ms:
+            img = sensor.snapshot()
+            now = time.ticks_ms()
+
+            # Draw red rectangle on current pixel
+            img.draw_rectangle(pos[0] - 2, pos[1] - 2, 5, 5, color=(255, 0, 0))
+
+            val = img.get_pixel(pos[0], pos[1])
+
+            if val > prev_val:
+                trend = 1
+            elif val < prev_val:
+                trend = -1
+            else:
+                trend = prev_trend
+
+            # Detect high-to-low transition
+            if trend == -1 and prev_trend == 1:
+                polarity_times.append(now)
+
+            prev_val = val
+            prev_trend = trend
+
+        # Take one more sample after the loop to catch a final transition
+        img = sensor.snapshot()
+        val = img.get_pixel(pos[0], pos[1])
+        if val < prev_val and prev_trend == 1:
+            polarity_times.append(time.ticks_ms())
+
+        # Calculate frequency
+        count = len(polarity_times)
+        freq = count / (duration_ms / 1000.0)
+        pixel_freq_sums[pos] += freq
+        print(f"Pixel {pos}: {count} events -> ~{freq:.2f} Hz")
+
+print("\n=== Average Frequencies over {} rounds ===".format(num_repeats))
+for pos in pixels_to_check:
+    avg_freq = pixel_freq_sums[pos] / num_repeats
+    print(f"Pixel {pos}: ~{avg_freq:.2f} Hz")
+
+print("\nDone.")
