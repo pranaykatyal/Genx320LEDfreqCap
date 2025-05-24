@@ -2,6 +2,12 @@ import sensor
 import time
 import heapq
 import image
+from pyb import UART
+
+# UART 3, and baudrate.
+uart = UART(3, 19200, timeout_char=200) 
+
+
 
 sensor.reset()
 sensor.set_pixformat(sensor.GRAYSCALE)
@@ -100,15 +106,22 @@ def measure_led_frequency(led_center, duration_ms=2000):
     return freq_hz
 
 # Measure frequency for each detected LED
+last_freqs = [-1.0] * len(led_centers)
 for i, led_center in enumerate(led_centers):
     print(f"\n=== Measuring LED {i+1} at {led_center} ===")
     freq = measure_led_frequency(led_center, duration_ms=2000)
     print(f"LED {i+1} Frequency: {freq:.2f} Hz")
+    # Only send over UART if frequency changed significantly
+    adjusted_freq = freq + 5
+    if abs(adjusted_freq - last_freqs[i]) > 0.01:
+        uart.write("LED {}: {:.2f} Hz\n".format(i+1, adjusted_freq))
+        last_freqs[i] = adjusted_freq
+
     
 
 # Window size (rows x cols)
-window_rows = 3
-window_cols = 3
+window_rows = 1
+window_cols = 1
 half_rows = window_rows // 2
 half_cols = window_cols // 2
 
@@ -136,6 +149,8 @@ for i, (px, py) in enumerate(led_centers):
 
             img = sensor.snapshot()
             prev_val = img.get_pixel(pos[0], pos[1])
+            if isinstance(prev_val, tuple):
+                prev_val = prev_val[0]
 
             start = time.ticks_ms()
             while time.ticks_diff(time.ticks_ms(), start) < duration_ms:
@@ -143,6 +158,8 @@ for i, (px, py) in enumerate(led_centers):
                 now = time.ticks_ms()
                 img.draw_rectangle(pos[0] - 2, pos[1] - 2, 5, 5, color=(255, 0, 0))
                 val = img.get_pixel(pos[0], pos[1])
+                if isinstance(val, tuple):
+                    val = val[0]
 
                 if val > prev_val:
                     trend = 1
@@ -159,7 +176,11 @@ for i, (px, py) in enumerate(led_centers):
 
             img = sensor.snapshot()
             val = img.get_pixel(pos[0], pos[1])
-            if val < prev_val and prev_trend == 1:
+            if isinstance(val, tuple):
+                val = val[0]
+            if isinstance(prev_val, tuple):
+                prev_val = prev_val[0]
+            if val < prev_val and prev_trend == 1 and abs(val - prev_val) > 20:
                 polarity_times.append(time.ticks_ms())
 
             count = len(polarity_times)
