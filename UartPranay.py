@@ -60,6 +60,13 @@ px, py = led_center
 def measure_led_frequency(led_center, duration_ms=3000):
     px, py = led_center
     transition_times = []
+    val_list=[]
+    polarity_list = []
+    transitionmomentlist = []
+    prevValueList = []
+    allvaluesafetr17milliseconds = []
+    
+    
     prev_val = 0
     prev_polarity = 0
     last_transition_time = 0
@@ -94,15 +101,36 @@ def measure_led_frequency(led_center, duration_ms=3000):
         img = sensor.snapshot()
         now = time.ticks_ms()
         val = img.get_pixel(px, py)
+        print("the value at this time",val)
+        
         if isinstance(val, tuple):
             val = val[0]
         polarity = 1 if val > threshold else -1
+        
         if polarity != prev_polarity:
             if last_transition_time == 0 or (now - last_transition_time) > 5:
                 transition_times.append(now)
+                #####
+                # last_transition_time = now
+                prevValueList.append(prev_val)
+                allvaluesafetr17milliseconds.append(val)
+                val_list.append(val)
+                polarity_list.append(polarity)
+                transitionmomentlist.append(time.ticks_diff(time.ticks_ms(), start))
+                #####
                 last_transition_time = now
         prev_polarity = polarity
 
+    print("the values at these times",val_list)
+    print("the previous values",prev_val)
+    print("the transition times",transition_times)
+    if len(transition_times) > 1:
+        intervals = [transition_times[i+1] - transition_times[i] for i in range(len(transition_times)-1)]
+        print("intervals between transitions", intervals)
+    print("the polarities at these times",polarity_list)
+    print("the transition moments", transitionmomentlist)
+    print("the values after 17 milliseconds", allvaluesafetr17milliseconds)
+    
     cycles = len(transition_times) // 2
     freq_hz = cycles / (duration_ms / 1000.0)
     print(f"Transitions: {len(transition_times)} detected at {led_center}")
@@ -110,7 +138,7 @@ def measure_led_frequency(led_center, duration_ms=3000):
     return freq_hz
 
 # Measure frequency for the detected LED
-freq = measure_led_frequency(led_center, duration_ms=500)
+freq = measure_led_frequency(led_center, duration_ms=1000)
 # freq += 5  # Add 5 Hz offset
 
 # Send frequency via UART

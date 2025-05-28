@@ -1,3 +1,5 @@
+// Write this in Arduino IDE and then execute to an Arduino Uno board.
+
 #include <Wire.h>
 #include <lp55231.h>
 

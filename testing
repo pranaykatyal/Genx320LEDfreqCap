@@ -1,0 +1,86 @@
+import time
+import sensor
+try:
+    import pyb
+except ImportError:
+    pyb = None  # or handle accordingly if running off hardware
+
+import image
+
+# Sensor setup
+sensor.reset()
+sensor.set_pixformat(sensor.GRAYSCALE)
+sensor.set_framesize(sensor.B320X320)
+# sensor.set_color_palette(image.PALETTE_EVT_DARK)
+sensor.set_framerate(60)
+sensor.skip_frames(time=2000)
+
+# UART setup
+if pyb is not None:
+    uart = pyb.UART(3, 19200)
+else:
+    uart = None
+
+# Hardcoded pixel list for testing (currently only one pixel)
+pixels = [(161, 133),(161,139)] # RightUp, RightDown, # LeftUp, LeftDown
+
+timelist = []
+for px, py in pixels:
+    prev_val = None
+    prev_trend = 0
+    first_edge_time = None
+    found_one_edge = False
+    min_transition_delay_ms = 20  # prevent false rapid toggles
+
+    print("Watching pixel ({}, {}) for two clean transitions...".format(px, py))
+
+    while True:
+        img = sensor.snapshot()
+        now = time.ticks_ms()
+
+        # Draw pixel for visualization
+        img.draw_rectangle(px - 2, py - 2, 5, 5, color=(255, 0, 0))
+
+        val = img.get_pixel(px, py)
+        if isinstance(val, tuple):
+            val = val[0]
+
+        if prev_val is None:
+            prev_val = val
+            continue
+
+        # Determine trend
+        if val > prev_val:
+            trend = 1
+        elif val < prev_val:
+            trend = -1
+        else:
+            trend = prev_trend
+
+        # Polarity change detection (with debounce filter)
+        if trend != prev_trend:
+            if not found_one_edge:
+                # First valid transition
+                first_edge_time = now
+                found_one_edge = True
+                print("First transition at:", first_edge_time)
+            else:
+                # Enforce minimum time gap to avoid jitter-based triggers
+                delta = time.ticks_diff(now, first_edge_time)
+                if delta > min_transition_delay_ms:
+                    second_edge_time = now
+                    period_ms = 2 * delta
+                    freq = 1000.0 / period_ms
+                    print("Second transition at:", second_edge_time)
+                    print("Period T = {} ms".format(period_ms))
+                    print("Frequency = {:.2f} Hz".format(freq))
+                    msg = f"{freq:.2f}\n"
+                    if uart is not None:
+                        uart.write(msg)
+                        print("Sent frequency:", msg.strip())
+                    else:
+                        print("UART not available, frequency:", msg.strip())
+                    break
+
+        prev_val = val
+        prev_trend = trend
