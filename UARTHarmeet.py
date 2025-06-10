@@ -44,10 +44,7 @@ def detect_led_center_via_blobs(duration_s=2):
     if max_blob:
         center = (int(max_blob.cx()), int(max_blob.cy()))
         # Draw for visualization (optional)
-        # Ensure img is defined here by taking a new snapshot
-        img = sensor.snapshot()
-        x, y, w, h = max_blob.rect()
-        img.draw_rectangle(x, y, w, h, color=(255, 0, 0))
+        img.draw_rectangle(max_blob.rect(), color=(255, 0, 0))
         img.draw_cross(max_blob.cx(), max_blob.cy(), color=(0, 255, 0))
     return center
 
@@ -60,7 +57,7 @@ if not led_center:
 px, py = led_center
 
 # --- Frequency detection for the detected LED ---
-def measure_led_frequency(led_center, duration_ms=3000):
+def measure_led_frequency(led_center, duration_ms=500):
     px, py = led_center
     transition_times = []
     prev_val = 0
@@ -113,11 +110,10 @@ def measure_led_frequency(led_center, duration_ms=3000):
     return freq_hz
 
 # Measure frequency for the detected LED
-freq = measure_led_frequency(led_center, duration_ms=50)
-# freq += 5  # Add 5 Hz offset
+freq = measure_led_frequency(led_center, duration_ms=3000)
+freq += 5  # Add 5 Hz offset
 
 # Send frequency via UART
-freq = 15
 msg = f"{freq:.2f}\n"
 if uart is not None:
     uart.write(msg)

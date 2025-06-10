@@ -1,0 +1,170 @@
+import sensor
+import time
+try:
+    import pyb
+except ImportError:
+    pyb = None  # or handle accordingly if running off hardware
+
+import image
+
+# Sensor setup
+sensor.reset()
+sensor.set_pixformat(sensor.GRAYSCALE)
+sensor.set_framesize(sensor.B320X320)
+sensor.set_framerate(60)
+sensor.skip_frames(time=2000)
+
+# UART setup (optional)
+if pyb is not None:
+    uart = pyb.UART(3, 19200)
+else:
+    uart = None
+
+# --- Blob-based LED center detection ---
+def detect_led_center_via_blobs(duration_s=2):
+    start = time.ticks_ms()
+    center = None
+    max_blob = None
+    max_area = 0
+    while time.ticks_diff(time.ticks_ms(), start) < duration_s * 1000:
+        img = sensor.snapshot()
+        # Use a simple grayscale threshold for bright spots
+        blobs = img.find_blobs(
+            [(200, 255)], invert=False, pixels_threshold=10, area_threshold=10, merge=True
+        )
+        if blobs:
+            # Sort blobs by area, largest first
+            blob = max(blobs, key=lambda b: b.pixels())
+            area = blob.pixels()
+            if area > max_area:
+                max_area = area
+                max_blob = blob
+    if max_blob:
+        center = (int(max_blob.cx()), int(max_blob.cy()))
+        # Draw for visualization (optional)
+        img = sensor.snapshot()
+        x, y, w, h = max_blob.rect()
+        img.draw_rectangle(x, y, w, h, color=(255, 0, 0))
+        img.draw_cross(max_blob.cx(), max_blob.cy(), color=(0, 255, 0))
+    return center
+
+# --- Fixed frequency detection with better algorithm ---
+def measure_led_frequency_improved(led_center, duration_ms=150):
+    """
+    Improved frequency detection with more accurate transition counting.
+    """
+    px, py = led_center
+    samples = []
+    
+    # Collect samples as fast as possible
+    start = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), start) < duration_ms:
+        img = sensor.snapshot()
+        val = img.get_pixel(px, py)
+        if isinstance(val, tuple):
+            val = val[0]  # Take grayscale value
+        samples.append((time.ticks_ms(), val))
+        # No sleep - sample as fast as possible
+    
+    if len(samples) < 20:
+        print(f"  WARNING: Only {len(samples)} samples collected")
+        return 10.0  # Default if not enough samples
+    
+    # Get timestamps and values
+    timestamps = [s[0] for s in samples]
+    values = [s[1] for s in samples]
+    
+    # Calculate dynamic threshold with more margin
+    min_val, max_val = min(values), max(values)
+    amplitude = max_val - min_val
+    threshold = min_val + (amplitude * 0.5)  # Middle threshold
+    
+    print(f"  Samples: {len(samples)}, Range: {min_val}-{max_val}, Amplitude: {amplitude}, Threshold: {threshold:.1f}")
+    
+    # If amplitude is too small, LED might not be blinking
+    if amplitude < 20:
+        print(f"  WARNING: Low amplitude ({amplitude}), LED might not be blinking properly")
+        return 10.0
+    
+    # Count zero crossings (transitions through threshold)
+    crossings = 0
+    prev_above = values[0] > threshold
+    
+    for i in range(1, len(values)):
+        current_above = values[i] > threshold
+        if current_above != prev_above:
+            crossings += 1
+        prev_above = current_above
+    
+    # Calculate actual duration
+    actual_duration_s = (timestamps[-1] - timestamps[0]) / 1000.0
+    
+    # Calculate frequency
+    # Each complete cycle has 2 zero crossings (up and down)
+    if actual_duration_s > 0 and crossings > 0:
+        frequency = (crossings / 2.0) / actual_duration_s
+    else:
+        frequency = 0
+    
+    print(f"  Zero crossings: {crossings}, Duration: {actual_duration_s:.3f}s")
+    print(f"  Calculated frequency: {frequency:.1f}Hz")
+    
+    # Classify as 10Hz or 20Hz based on calculated frequency
+    if frequency > 15:
+        detected_freq = 20.0
+        print(f"  -> Classified as 20Hz")
+    elif frequency > 5:
+        detected_freq = 10.0
+        print(f"  -> Classified as 10Hz")
+    else:
+        print(f"  -> Very low frequency, defaulting to 10Hz")
+        detected_freq = 10.0
+    
+    return detected_freq
+
+# --- Main function to get 10 bits ---
+def get_10_bits(led_center):
+    bits_list = []
+    start_time = time.ticks_ms()
+    
+    for i in range(10):
+        # Calculate time since start
+        elapsed = time.ticks_diff(time.ticks_ms(), start_time)
+        print(f"\n--- Sample {i+1} at {elapsed}ms ---")
+        
+        # Measure frequency and classify as bit
+        freq = measure_led_frequency_improved(led_center, duration_ms=80)
+        bit = 1 if freq > 15 else 0  # 20Hz=1, 10Hz=0
+        bits_list.append(bit)
+        
+        # Calculate next sample time
+        next_sample_time = start_time + (i + 1) * 100
+        current_time = time.ticks_ms()
+        
+        # Wait until next sample time if needed
+        if time.ticks_diff(next_sample_time, current_time) > 0:
+            wait_ms = time.ticks_diff(next_sample_time, current_time)
+            print(f"  Waiting {wait_ms}ms for next sample")
+            time.sleep_ms(wait_ms)
+    
+    return bits_list
+
+# --- Main execution ---
+print("Detecting LED blob...")
+led_center = detect_led_center_via_blobs(duration_s=2)
+print("Detected LED center:", led_center)
+
+if not led_center:
+    print("WARNING: No LED blob detected! Using default center (160, 160).")
+    led_center = (160, 160)
+
+print("\nStarting 1-second sampling (10 readings at 100ms intervals)")
+bits_list = get_10_bits(led_center)
+
+print("\n=== FINAL RESULTS ===")
+print("Bits list (10 readings):", bits_list)
+print("Total samples:", len(bits_list))
+
+# Optional: Send via UART
+if uart is not None:
+    uart.write("Bits: " + str(bits_list) + "\n")
