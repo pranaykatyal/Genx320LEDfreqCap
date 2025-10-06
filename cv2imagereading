@@ -1,0 +1,79 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from math import sqrt
+
+
+# Load image (color or grayscale)
+image_path = os.path.expanduser('~/CV/LEDpose9.jpg')
+img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+
+if img is None:
+    print("❌ Failed to load image.")
+    exit()
+
+# Prepare display image and binary mask
+if len(img.shape) == 3:
+    display_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    binary = np.all(img[:, :, :3] == 255, axis=-1).astype(np.uint8)
+else:
+    display_img = img
+    binary = (img == 255).astype(np.uint8)
+
+fig, ax = plt.subplots()
+ax.imshow(display_img)
+ax.set_title("Left-click: add point | Right-click: remove nearest | Press 'u': undo last")
+
+points = []   # List of (x, y) clicked points
+scat = ax.scatter([], [], c='r')  # scatter plot for points
+
+
+def update_plot():
+    xs, ys = zip(*points) if points else ([], [])
+    scat.set_offsets(np.c_[xs, ys])
+    plt.draw()
+
+def dist(p1, p2):
+    return sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
+
+def onclick(event):
+    if event.xdata is None or event.ydata is None:
+        return
+
+    x, y = int(event.xdata), int(event.ydata)
+
+
+    if event.button == 1:  # Left click to add point
+        # If image is color (3 channels), allow adding anywhere
+        if len(img.shape) == 3:
+            points.append((x, y))
+            print(f"({x}, {y})")
+            update_plot()
+        else:
+            if binary[y, x] == 1:
+                points.append((x, y))
+                print(f"({x}, {y}),")
+                update_plot()
+            else:
+                print(f"Clicked position (x={x}, y={y}) is not an LED spot. Ignored.")
+
+    elif event.button == 3:  # Right click to remove nearest point
+        if points:
+            distances = [dist((x, y), pt) for pt in points]
+            nearest_index = distances.index(min(distances))
+            removed_point = points.pop(nearest_index)
+            print(f"Removed nearest point: {removed_point}")
+            update_plot()
+
+def onkey(event):
+    if event.key == 'u':  # Undo last point added
+        if points:
+            removed_point = points.pop()
+            print(f"Undo: removed last point {removed_point}")
+            update_plot()
+
+cid_click = fig.canvas.mpl_connect('button_press_event', onclick)
+cid_key = fig.canvas.mpl_connect('key_press_event', onkey)
+
+plt.show()

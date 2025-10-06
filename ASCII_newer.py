@@ -272,10 +272,21 @@ frequencies, binary_data, timestamps = monitor_led_frequencies(
 
 # Send results via UART
 if uart is not None:
-    result_msg = f"FREQ:{frequencies}\nBIN:{binary_data}\nTIME:{timestamps}\n"
+    # Convert lists to CSV strings without brackets
+    freq_str = ",".join(f"{f:.1f}" for f in frequencies)
+    bin_str = ",".join(str(b) for b in binary_data)
+    time_str = ",".join(str(t) for t in timestamps)
+    
+    # Compose the message with line prefixes
+    result_msg = (
+        f"FREQ:{freq_str}\n"
+        f"BIN:{bin_str}\n"
+        f"TIME:{time_str}\n"
+    )
     uart.write(result_msg)
 else:
     print("UART not available")
+
 print("=== FINAL RESULTS ===")
 print("Frequencies:", [f"{freq:.1f}" for freq in frequencies])
 print("Binary:", binary_data)

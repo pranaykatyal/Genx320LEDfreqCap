@@ -1,0 +1,73 @@
+## to copy the  file from deepracer into my pc from /tmp to ~/CV
+( run on laptops terminal )
+scp deepracer@130.215.120.119:/tmp/homography_mask_1753835341.png ~/CV
+
+## commands i ran : 
+# deepracer@amss-nwfn:~/deepracer_nav2_ws/aws-deepracer$ ls /tmp  ---------- to list the  tmp files to check the image name 
+# deepracer@amss-nwfn:~/deepracer_nav2_ws/aws-deepracer$ ros2 service call /camera_pkg/calib_state deepracer_interfaces_pkg/srv/GetCameraHomography "{get_homography: true }"  ------- service call to get homography of the image
+# deepracer@amss-nwfn:~/deepracer_nav2_ws/aws-deepracer$ ros2 service call /camera_pkg/media_state deepracer_interfaces_pkg/srv/VideoStateSrv "{activate_video: 1}" --------- service call to get video stream
+# deepracer@amss-nwfn:~/deepracer_nav2_ws/aws-deepracer$ ros2 run aws_deepracer_events_camera_pkg calib_node -------- to run the events camera node
+# deepracer@amss-nwfn:~/deepracer_nav2_ws/aws-deepracer$ ros2 launch camera_pkg camera_pkg_launch.py ------- to launch the camera package
+
+
+
+
+#RGB  pixels -->
+
+corners=[] #####insert white spots 
+--  added manually 
+Added point: (x=39, y=6)  Top Left 
+Added point: (x=50, y=8)
+Added point: (x=57, y=9)
+Added point: (x=71, y=31)
+Added point: (x=81, y=37)
+Added point: (x=93, y=39)
+Added point: (x=106, y=61)
+Added point: (x=115, y=65)
+Added point: (x=124, y=67)   Bottom Right 
+
+
+-- used a python script 
+pranaykatyal@legionpro7:~/Directed Research$ /bin/python3 "/home/pranaykatyal/Directed Research/clusteringcv2imagereading"
+Found 14 raw LED candidate groups
+After clustering, found 9 LEDs
+LED 1: (x=39, y=5)
+LED 2: (x=49, y=7)
+LED 3: (x=58, y=9)
+LED 4: (x=70, y=30)
+LED 5: (x=83, y=38)
+LED 6: (x=93, y=40)
+LED 7: (x=105, y=60)
+LED 8: (x=113, y=62)
+LED 9: (x=123, y=67)
+
+
+------------------
+LED1 = (x=94, y=63)
+LED2 = (x=88, y=62)
+LED3 = (x=82, y=58)
+LED4 = (x=74, y=44)
+LED5 = (x=67, y=42)
+LED6 = (x=61, y=39)
+LED7 = (x=54, y=25)
+LED8 = (x=50, y=25)
+LED9 = (x=42, y=22)
+src
+[(42,22), (50,25), (54, 25), (61 , 39), (67,42), (74,44), (82,58), (88, 62),(94,63)]
+dst
+[(123, 115), (133, 119), (143, 122), (153, 146), (163, 150), (173, 153), (184, 174), (193, 178), (202, 182)]
+------ H ----------
+[[-0.10815331  0.71115178 -0.00216302]
+ [ 0.22663349  0.15712562  0.00241857]
+ [ 0.35625158 -0.52869478 -0.00842153]]
+
+-----------------------------------
+corners.sort(key=lamda x:x[0])
+
+###add new code for led tracking event node 
+
+event_corners=[]
+event_corners.sort(key=lamda x:x[0])
+
+####homography calculation function 
+###src --> corners and dest-->event_camera pixels

@@ -1,0 +1,74 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Load the binary image
+image_path = '/home/pranaykatyal/CV/LEDpose2_2.png'
+img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+
+if img is None:
+    print("Image not found")
+    exit()
+
+# Convert to binary mask (0 background, 1 LEDs)
+if len(img.shape) == 3:
+    binary = np.all(img[:, :, :3] == 255, axis=-1).astype(np.uint8)
+else:
+    binary = (img == 255).astype(np.uint8)
+
+# Find connected components
+num_labels, labels_im = cv2.connectedComponents(binary)
+
+# Calculate centroids of connected components (skip background label 0)
+centroids = []
+for label in range(1, num_labels):
+    ys, xs = np.where(labels_im == label)
+    if len(xs) == 0:
+        continue
+    cx = int(np.mean(xs))
+    cy = int(np.mean(ys))
+    centroids.append((cx, cy))
+
+# Cluster centroids using a square window
+window_size = 6  # Adjust based on spacing
+
+final_leds = []
+while centroids:
+    cx, cy = centroids.pop(0)
+    cluster = [(cx, cy)]
+
+    to_remove = []
+    for i, (x, y) in enumerate(centroids):
+        if abs(x - cx) <= window_size and abs(y - cy) <= window_size:
+            cluster.append((x, y))
+            to_remove.append(i)
+
+    for i in reversed(to_remove):
+        centroids.pop(i)
+
+    avg_x = int(np.mean([p[0] for p in cluster]))
+    avg_y = int(np.mean([p[1] for p in cluster]))
+    final_leds.append((avg_x, avg_y))
+
+# Sort LEDs by vertical then horizontal position
+final_leds = sorted(final_leds, key=lambda p: (p[1], p[0]))
+msg=[]
+print(f"Final detected LED positions ({len(final_leds)}):")
+for i, (x, y) in enumerate(final_leds):
+    print(f"LED {i+1}:({x}, {y})")
+    temp=(x,y)
+    msg.append(temp)
+print("msg:", msg)
+# Plot original image with detected LEDs overlaid
+plt.figure(figsize=(8, 6))
+plt.imshow(binary, cmap='gray')
+for i, (x, y) in enumerate(final_leds):
+    plt.plot(x, y, 'ro')                  # Red dot
+    plt.text(x+2, y-2, f'{i+1}', color='red', fontsize=12)  # Label
+
+plt.title('Detected LED Clusters')
+plt.axis('off')
+plt.show()
+
+## close all 
+# plt.close()
